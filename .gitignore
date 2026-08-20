@@ -1,0 +1,4 @@
+build/
+gauth-data/
+*.log
+.DS_Store

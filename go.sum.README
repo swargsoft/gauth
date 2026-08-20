@@ -1,0 +1,1 @@
+note: go.sum intentionally omitted — generate it with 'go mod tidy' once you have network/module access
