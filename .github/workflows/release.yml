@@ -43,6 +43,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: linux-amd64
+          retention-days: 1
           path: |
             gauth-linux-amd64
             gauth-linux-amd64.sha256
@@ -74,6 +75,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: linux-arm64
+          retention-days: 1
           path: |
             gauth-linux-arm64
             gauth-linux-arm64.sha256
@@ -117,6 +119,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: mac-universal
+          retention-days: 1
           path: |
             gauth-mac-arm64
             gauth-mac-arm64.sha256
@@ -149,6 +152,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: windows-amd64
+          retention-days: 1
           path: |
             gauth-windows-amd64.exe
             gauth-windows-amd64.exe.sha256
@@ -217,6 +221,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: checksums
+          retention-days: 1
           path: |
             SHA256SUMS
             latest.json
@@ -242,3 +247,31 @@ jobs:
         with:
           files: release/*
           generate_release_notes: true
+
+  # ── Delete this run's intermediate artifacts after release ─────────────────
+  cleanup:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Delete this run's artifacts
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const runId = context.runId;
+            let deleted = 0;
+            for await (const page of github.paginate.iterator(
+              github.rest.actions.listArtifactsForRepo,
+              { owner, repo, per_page: 100 },
+            )) {
+              for (const a of page.data) {
+                if (a.expired) continue;
+                if (a.workflow_run?.id !== runId) continue;
+                await github.rest.actions.deleteArtifact({ owner, repo, artifact_id: a.id });
+                core.info(`deleted artifact ${a.name} (${a.id})`);
+                deleted++;
+              }
+            }
+            core.info(`Deleted ${deleted} artifact(s) for run ${runId}`);
