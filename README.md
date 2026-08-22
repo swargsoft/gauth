@@ -132,9 +132,17 @@ supplies (`?userId=`, or `X-User-Id` header for POST/DELETE).
 {"status":"ok","service":"gauth","version":"1.0.0"}
 ```
 
-### `GET /api/google-auth/auth-url?userId=<id>`
+### `GET /api/google-auth/auth-url?userId=<id>&returnTo=<base-url>`
 Returns `{"authUrl": "https://accounts.google.com/..."}`. Redirect the
 browser there; Google redirects back to `/callback` on completion.
+
+`returnTo` is optional: a full base URL (including its path) the browser
+is redirected to after consent instead of the built-in
+`<frontend-origin>/sync-settings`. Only the configured production
+frontend origin or any localhost/127.0.0.1 origin is honored — anything
+else silently falls back to the default, so gauth can't be used as an
+open redirect. This is how the msgly Vite dev server (localhost:5173)
+gets its post-consent redirect.
 
 ### `GET /api/google-auth/callback` — public (Google's own redirect target)
 Validates the signed PKCE-bound state, exchanges the code, stores the

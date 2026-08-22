@@ -247,7 +247,7 @@ func (s *Server) handleAuthURL(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	start, err := s.oauthState.Create(userID)
+	start, err := s.oauthState.Create(userID, returnToFromRequest(r, s.frontendOrigin))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -256,41 +256,72 @@ func (s *Server) handleAuthURL(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]string{"authUrl": authURL})
 }
 
+// returnToFromRequest extracts the optional ?returnTo= base URL the
+// frontend wants to land on after Google consent (it must already
+// include its path, e.g. https://host/sync-settings). Only the exact
+// configured frontend origin or any localhost/127.0.0.1 origin is
+// allowed — anything else falls back to the default frontend origin so
+// gauth can never be used as an open redirect.
+func returnToFromRequest(r *http.Request, frontendOrigin string) string {
+	raw := strings.TrimSpace(r.URL.Query().Get("returnTo"))
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || u.Path == "" ||
+		(u.Scheme != "http" && u.Scheme != "https") {
+		return ""
+	}
+	fu, err := url.Parse(frontendOrigin)
+	if err != nil || fu.Host == "" {
+		return ""
+	}
+	if !strings.EqualFold(u.Host, fu.Host) && !isLocalDevOrigin(u.Hostname()) {
+		return ""
+	}
+	return raw
+}
+
 func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
 	state := r.URL.Query().Get("state")
 
-	redirectErr := func(msg string) {
-		u := s.frontendOrigin + "/sync-settings?auth=error&message=" + url.QueryEscape(msg)
+	defaultBase := s.frontendOrigin + "/sync-settings"
+	redirectErr := func(base, msg string) {
+		u := base + "?auth=error&message=" + url.QueryEscape(msg)
 		http.Redirect(w, r, u, http.StatusFound)
 	}
 
 	if code == "" || state == "" {
-		redirectErr("Missing parameters")
+		redirectErr(defaultBase, "Missing parameters")
 		return
 	}
 
 	consumed, err := s.oauthState.ValidateAndConsume(state)
 	if err != nil {
 		log.Printf("oauth callback rejected: %v", err)
-		redirectErr("Invalid or expired authentication request")
+		redirectErr(defaultBase, "Invalid or expired authentication request")
 		return
+	}
+	base := defaultBase
+	if consumed.ReturnTo != "" {
+		base = strings.TrimRight(consumed.ReturnTo, "/")
 	}
 
 	tok, err := s.google.ExchangeCode(code, consumed.CodeVerifier)
 	if err != nil {
 		log.Printf("oauth callback exchange failed: %v", err)
-		redirectErr("Google authentication failed")
+		redirectErr(base, "Google authentication failed")
 		return
 	}
 
 	if _, err := s.tokens.StoreAccount(consumed.UserID, tok); err != nil {
 		log.Printf("oauth callback store failed: %v", err)
-		redirectErr("Failed to save Google account")
+		redirectErr(base, "Failed to save Google account")
 		return
 	}
 
-	u := s.frontendOrigin + "/sync-settings?auth=success&email=" + url.QueryEscape(tok.Email)
+	u := base + "?auth=success&email=" + url.QueryEscape(tok.Email)
 	http.Redirect(w, r, u, http.StatusFound)
 }
 

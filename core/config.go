@@ -26,12 +26,15 @@ func isLocalDevOrigin(host string) bool {
 	return host == "localhost" || host == "127.0.0.1"
 }
 
-// GoogleScopes are requested on every OAuth flow. All three are
-// user-owned data the user explicitly consents to.
+// GoogleScopes are requested on every OAuth flow. These are exactly the
+// scopes msgly needs: Drive appdata + file for cloud backup, and
+// userinfo email/profile so the frontend can render the signed-in
+// account (gauth itself only stores the email).
 var GoogleScopes = []string{
+	"https://www.googleapis.com/auth/drive.appdata",
 	"https://www.googleapis.com/auth/drive.file",
-	"https://www.googleapis.com/auth/drive.metadata.readonly",
 	"https://www.googleapis.com/auth/userinfo.email",
+	"https://www.googleapis.com/auth/userinfo.profile",
 }
 
 // GoogleRedirectURI always targets the local loopback API port.
