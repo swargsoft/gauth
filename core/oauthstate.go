@@ -9,9 +9,9 @@ type oauthTxnRepo struct{ db *sql.DB }
 
 func newOAuthTxnRepo(db *sql.DB) *oauthTxnRepo { return &oauthTxnRepo{db: db} }
 
-func (r *oauthTxnRepo) create(stateHash, userID, codeVerifier, returnTo string, expiresAt int64) error {
-	_, err := r.db.Exec(`INSERT INTO oauth_transactions (state_hash, user_id, code_verifier, return_to, expires_at, created_at, used_at)
-		VALUES (?,?,?,?,?,?,NULL)`, stateHash, userID, codeVerifier, returnTo, expiresAt, time.Now().UnixMilli())
+func (r *oauthTxnRepo) create(stateHash, userID, codeVerifier, returnTo, attemptID string, expiresAt int64) error {
+	_, err := r.db.Exec(`INSERT INTO oauth_transactions (state_hash, user_id, code_verifier, return_to, attempt_id, expires_at, created_at, used_at)
+		VALUES (?,?,?,?,?,?,?,NULL)`, stateHash, userID, codeVerifier, returnTo, attemptID, expiresAt, time.Now().UnixMilli())
 	return err
 }
 
@@ -19,14 +19,15 @@ type oauthTxn struct {
 	UserID       string
 	CodeVerifier string
 	ReturnTo     string
+	AttemptID    string
 	ExpiresAt    int64
 	UsedAt       sql.NullInt64
 }
 
 func (r *oauthTxnRepo) find(stateHash string) (*oauthTxn, error) {
-	row := r.db.QueryRow(`SELECT user_id, code_verifier, return_to, expires_at, used_at FROM oauth_transactions WHERE state_hash=?`, stateHash)
+	row := r.db.QueryRow(`SELECT user_id, code_verifier, return_to, attempt_id, expires_at, used_at FROM oauth_transactions WHERE state_hash=?`, stateHash)
 	var t oauthTxn
-	if err := row.Scan(&t.UserID, &t.CodeVerifier, &t.ReturnTo, &t.ExpiresAt, &t.UsedAt); err != nil {
+	if err := row.Scan(&t.UserID, &t.CodeVerifier, &t.ReturnTo, &t.AttemptID, &t.ExpiresAt, &t.UsedAt); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -80,6 +81,7 @@ func NewOAuthStateService(db *sql.DB, ttl time.Duration) *OAuthStateService {
 type OAuthStartResult struct {
 	State         string
 	CodeChallenge string
+	AttemptID     string
 }
 
 func (s *OAuthStateService) Create(userID, returnTo string) (*OAuthStartResult, error) {
@@ -87,18 +89,20 @@ func (s *OAuthStateService) Create(userID, returnTo string) (*OAuthStartResult, 
 	stateHash := SHA256Hex(state)
 	verifier := GenerateCodeVerifier()
 	challenge := CodeChallengeS256(verifier)
+	attemptID := GenerateAttemptID()
 	expiresAt := time.Now().Add(s.ttl).UnixMilli()
 
-	if err := s.repo.create(stateHash, userID, verifier, returnTo, expiresAt); err != nil {
+	if err := s.repo.create(stateHash, userID, verifier, returnTo, attemptID, expiresAt); err != nil {
 		return nil, err
 	}
-	return &OAuthStartResult{State: state, CodeChallenge: challenge}, nil
+	return &OAuthStartResult{State: state, CodeChallenge: challenge, AttemptID: attemptID}, nil
 }
 
 type OAuthConsumeResult struct {
 	UserID       string
 	CodeVerifier string
 	ReturnTo     string // validated post-consent redirect base, empty = default frontend origin
+	AttemptID    string
 }
 
 func (s *OAuthStateService) ValidateAndConsume(state string) (*OAuthConsumeResult, error) {
@@ -129,7 +133,7 @@ func (s *OAuthStateService) ValidateAndConsume(state string) (*OAuthConsumeResul
 		return nil, NewError(ErrCodeStateReplayed, 400, "OAuth state has already been used")
 	}
 
-	return &OAuthConsumeResult{UserID: txn.UserID, CodeVerifier: txn.CodeVerifier, ReturnTo: txn.ReturnTo}, nil
+	return &OAuthConsumeResult{UserID: txn.UserID, CodeVerifier: txn.CodeVerifier, ReturnTo: txn.ReturnTo, AttemptID: txn.AttemptID}, nil
 }
 
 func (s *OAuthStateService) CleanupExpired() (int64, error) {

@@ -250,12 +250,17 @@ func (s *Server) handleAuthURL(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	start, err := s.oauthState.Create(userID, returnToFromRequest(r))
+	returnTo := returnToFromRequest(r)
+	start, err := s.oauthState.Create(userID, returnTo)
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
-	authURL := s.google.BuildAuthURL(start.State, start.CodeChallenge)
+	oauthLog(start.AttemptID, "attempt_start",
+		"user_id", userID,
+		"return_to", returnTo,
+	)
+	authURL := s.google.BuildAuthURL(start.State, start.CodeChallenge, start.AttemptID)
 	jsonOK(w, map[string]string{"authUrl": authURL})
 }
 
@@ -301,35 +306,48 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, u, http.StatusFound)
 	}
 
+	oauthLog("-", "callback_received",
+		"code_present", boolStr(code != ""),
+		"state_present", boolStr(state != ""),
+	)
+
 	if code == "" || state == "" {
+		oauthLog("-", "callback_rejected", "reason", "missing_parameters")
 		redirectErr(defaultBase, "Missing parameters")
 		return
 	}
 
 	consumed, err := s.oauthState.ValidateAndConsume(state)
 	if err != nil {
-		log.Printf("oauth callback rejected: %v", err)
+		oauthLog("-", "callback_state_invalid", "error", err.Error())
 		redirectErr(defaultBase, "Invalid or expired authentication request")
 		return
 	}
+	// From here on the attempt ID is known — every later line for this
+	// login carries it.
+	oauthLog(consumed.AttemptID, "callback_state_valid",
+		"redirect_uri", s.google.RedirectURI(),
+	)
+
 	base := defaultBase
 	if consumed.ReturnTo != "" {
 		base = strings.TrimRight(consumed.ReturnTo, "/")
 	}
 
-	tok, err := s.google.ExchangeCode(code, consumed.CodeVerifier)
+	tok, err := s.google.ExchangeCode(code, consumed.CodeVerifier, consumed.AttemptID)
 	if err != nil {
-		log.Printf("oauth callback exchange failed: %v", err)
+		oauthLog(consumed.AttemptID, "token_exchange_failed", "error_code", errorCodeOf(err))
 		redirectErr(base, "Google authentication failed")
 		return
 	}
 
 	if _, err := s.tokens.StoreAccount(consumed.UserID, tok); err != nil {
-		log.Printf("oauth callback store failed: %v", err)
+		oauthLog(consumed.AttemptID, "account_store_failed", "user_id", consumed.UserID)
 		redirectErr(base, "Failed to save Google account")
 		return
 	}
 
+	oauthLog(consumed.AttemptID, "login_complete", "user_id", consumed.UserID)
 	u := base + "?auth=success&email=" + url.QueryEscape(tok.Email)
 	http.Redirect(w, r, u, http.StatusFound)
 }

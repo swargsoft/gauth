@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -145,6 +146,13 @@ func runServer(stop <-chan struct{}) error {
 	} else {
 		log.Printf("API key auth disabled (-key not set) — CORS allowlist is the only origin restriction, see SECURITY.md")
 	}
+	log.Printf("oauth config: client_id=%s client_type=%s redirect_uri=%s scopes=%s pkce_enabled=true pkce_method=S256 client_secret_configured=%t",
+		*flagClientID,
+		google.ClientType(),
+		redirectURI,
+		strings.Join(core.GoogleScopes, ","),
+		google.ClientSecretConfigured(),
+	)
 
 	errCh := make(chan error, 1)
 	go func() {

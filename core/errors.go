@@ -42,6 +42,15 @@ func NewError(code ErrorCode, status int, message string) *Error {
 	return &Error{Code: code, Message: message, HTTPStatus: status}
 }
 
+// errorCodeOf returns the stable machine-readable code of a *Error, or
+// "" for anything else. Used by the OAuth logging paths.
+func errorCodeOf(err error) string {
+	if e, ok := err.(*Error); ok {
+		return string(e.Code)
+	}
+	return ""
+}
+
 // ReauthRequired marks an error as needing the frontend to send the
 // user back through the connect flow (auth-url) — the controller layer
 // renders this as { message, needsReauth: true } instead of the usual

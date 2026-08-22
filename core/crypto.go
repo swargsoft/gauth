@@ -24,6 +24,13 @@ func GenerateState() string {
 	return base64.RawURLEncoding.EncodeToString(randomBytes(32))
 }
 
+// GenerateAttemptID returns a short random identifier correlating the
+// authorization request, callback, and token exchange of one OAuth
+// attempt in the logs. It grants no access and is safe to log.
+func GenerateAttemptID() string {
+	return hex.EncodeToString(randomBytes(6)) // 12 hex chars
+}
+
 // GenerateCodeVerifier returns a PKCE code_verifier per RFC 7636:
 // 43-128 chars from the unreserved character set. 64 random bytes ->
 // ~86 chars, comfortably in range.
