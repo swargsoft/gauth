@@ -48,10 +48,11 @@ func boolStr(b bool) string {
 // https://developers.google.com/identity/protocols/oauth2/native-app,
 // which documents client_secret as optional for this flow.
 type GoogleOAuth struct {
-	clientID    string
-	redirectURI string
-	scopes      []string
-	httpClient  *http.Client
+	clientID     string
+	redirectURI  string
+	scopes       []string
+	clientSecret string
+	httpClient   *http.Client
 }
 
 func NewGoogleOAuth(clientID, redirectURI string, scopes []string) *GoogleOAuth {
@@ -70,7 +71,15 @@ func NewGoogleOAuth(clientID, redirectURI string, scopes []string) *GoogleOAuth 
 func (g *GoogleOAuth) RedirectURI() string          { return g.redirectURI }
 func (g *GoogleOAuth) Scopes() []string             { return g.scopes }
 func (g *GoogleOAuth) ClientType() string           { return "desktop" }
-func (g *GoogleOAuth) ClientSecretConfigured() bool { return false }
+func (g *GoogleOAuth) ClientSecretConfigured() bool { return g.clientSecret != "" }
+
+// SetClientSecret configures the Desktop-app client secret used to
+// authenticate token exchanges. Supply it externally — via the
+// GAUTH_GOOGLE_CLIENT_SECRET environment variable, not a flag or baked
+// constant — so it never lands in argv, `ps` output, or the binary.
+func (g *GoogleOAuth) SetClientSecret(secret string) {
+	g.clientSecret = strings.TrimSpace(secret)
+}
 
 func (g *GoogleOAuth) BuildAuthURL(state, codeChallenge, attemptID string) string {
 	q := url.Values{}
@@ -167,6 +176,9 @@ func (g *GoogleOAuth) ExchangeCode(code, codeVerifier, attemptID string) (*Token
 	form.Set("code_verifier", codeVerifier)
 	form.Set("grant_type", "authorization_code")
 	form.Set("redirect_uri", g.redirectURI)
+	if g.clientSecret != "" {
+		form.Set("client_secret", g.clientSecret)
+	}
 
 	// Presence/length only — the code and verifier values are never
 	// logged. redirect_uri_consistent compares the redirect_uri sent on
@@ -238,6 +250,9 @@ func (g *GoogleOAuth) RefreshAccessToken(refreshToken string) (*TokenResult, err
 	form.Set("client_id", g.clientID)
 	form.Set("refresh_token", refreshToken)
 	form.Set("grant_type", "refresh_token")
+	if g.clientSecret != "" {
+		form.Set("client_secret", g.clientSecret)
+	}
 
 	oauthLog("-", "token_refresh_request",
 		"endpoint", googleTokenEndpoint,

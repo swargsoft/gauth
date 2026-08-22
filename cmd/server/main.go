@@ -114,6 +114,12 @@ func runServer(stop <-chan struct{}) error {
 	oauthState := core.NewOAuthStateService(db, 10*time.Minute)
 	redirectURI := core.GoogleRedirectURI(*flagPort)
 	google := core.NewGoogleOAuth(*flagClientID, redirectURI, core.GoogleScopes)
+	// Desktop-app credentials require client_secret at the token
+	// endpoint even with PKCE. Supplied via environment (never a flag)
+	// so it stays out of argv/ps output and out of the binary.
+	if sec := os.Getenv("GAUTH_GOOGLE_CLIENT_SECRET"); sec != "" {
+		google.SetClientSecret(sec)
+	}
 	tokens := core.NewTokenService(accounts, secrets, google, 5*time.Minute)
 
 	srv := core.NewServer(tokens, oauthState, google, core.FrontendOrigin, *flagAPIKey)

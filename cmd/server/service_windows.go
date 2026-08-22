@@ -229,6 +229,20 @@ func installService() error {
 		return fmt.Errorf("sc create failed: %v\n%s", err, out)
 	}
 
+	// The client secret must be supplied externally via the
+	// GAUTH_GOOGLE_CLIENT_SECRET environment variable of the caller
+	// (see main.go). Persisted in the service's Environment registry
+	// value — NOT in binPath/CommandLine, which WMI exposes to any user.
+	if clientSecret := os.Getenv("GAUTH_GOOGLE_CLIENT_SECRET"); clientSecret != "" {
+		if out, err := exec.Command("reg", "add",
+			`HKLM\SYSTEM\CurrentControlSet\Services\`+serviceName,
+			"/v", "Environment", "/t", "REG_MULTI_SZ",
+			"/d", "GAUTH_GOOGLE_CLIENT_SECRET="+clientSecret, "/f",
+		).CombinedOutput(); err != nil {
+			return fmt.Errorf("cannot set service environment (registry): %v\n%s", err, out)
+		}
+	}
+
 	if out, err := exec.Command("sc", "description", serviceName, serviceDescription).CombinedOutput(); err != nil {
 		fmt.Printf("warning: sc description: %v — %s\n", err, out)
 	}

@@ -43,6 +43,13 @@ const plistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
     <true/>
     <key>ThrottleInterval</key>
     <integer>5</integer>
+    {{- if .ClientSecret}}
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>GAUTH_GOOGLE_CLIENT_SECRET</key>
+        <string>{{.ClientSecret}}</string>
+    </dict>
+    {{- end}}
 
     <key>StandardOutPath</key>
     <string>/var/log/gauth.log</string>
@@ -53,11 +60,12 @@ const plistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 `
 
 type plistVars struct {
-	BinaryPath string
-	Port       int
-	DataDir    string
-	ClientID   string
-	APIKey     string
+	BinaryPath   string
+	Port         int
+	DataDir      string
+	ClientID     string
+	APIKey       string
+	ClientSecret string
 }
 
 func installService() error {
@@ -85,7 +93,18 @@ func installService() error {
 		return fmt.Errorf("cannot create data dir: %w", err)
 	}
 
-	f, err := os.OpenFile(plistPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	// The client secret must be supplied externally via the
+	// GAUTH_GOOGLE_CLIENT_SECRET environment variable of the caller
+	// (see main.go). When present it goes into the plist's
+	// EnvironmentVariables — NOT into ProgramArguments, which `ps`
+	// would expose. The plist is then written root-only (0600).
+	clientSecret := os.Getenv("GAUTH_GOOGLE_CLIENT_SECRET")
+	plistMode := os.FileMode(0644)
+	if clientSecret != "" {
+		plistMode = 0600
+	}
+
+	f, err := os.OpenFile(plistPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, plistMode)
 	if err != nil {
 		return fmt.Errorf("cannot write plist: %w", err)
 	}
@@ -93,11 +112,12 @@ func installService() error {
 
 	tmpl := template.Must(template.New("plist").Parse(plistTemplate))
 	if err := tmpl.Execute(f, plistVars{
-		BinaryPath: binaryPath,
-		Port:       *flagPort,
-		DataDir:    dataDir,
-		ClientID:   *flagClientID,
-		APIKey:     *flagAPIKey,
+		BinaryPath:   binaryPath,
+		Port:         *flagPort,
+		DataDir:      dataDir,
+		ClientID:     *flagClientID,
+		APIKey:       *flagAPIKey,
+		ClientSecret: clientSecret,
 	}); err != nil {
 		return fmt.Errorf("cannot render plist: %w", err)
 	}

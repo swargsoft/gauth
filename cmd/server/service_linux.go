@@ -20,6 +20,9 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStart={{.BinaryPath}} --port {{.Port}} --data {{.DataDir}} --client-id {{.ClientID}}{{if .APIKey}} --key {{.APIKey}}{{end}}
+{{- if .ClientSecret}}
+Environment="GAUTH_GOOGLE_CLIENT_SECRET={{.ClientSecret}}"
+{{- end}}
 Restart=on-failure
 RestartSec=5
 
@@ -28,11 +31,12 @@ WantedBy=multi-user.target
 `
 
 type unitVars struct {
-	BinaryPath string
-	Port       int
-	DataDir    string
-	ClientID   string
-	APIKey     string
+	BinaryPath   string
+	Port         int
+	DataDir      string
+	ClientID     string
+	APIKey       string
+	ClientSecret string
 }
 
 func installService() error {
@@ -60,7 +64,18 @@ func installService() error {
 		return fmt.Errorf("cannot create data dir: %w", err)
 	}
 
-	f, err := os.OpenFile(unitPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	// The client secret must be supplied externally via the
+	// GAUTH_GOOGLE_CLIENT_SECRET environment variable of the caller
+	// (see main.go). When present it goes into the unit's Environment=
+	// directive — NOT into ExecStart, which `ps` would expose — and the
+	// unit file is written root-only (0600).
+	clientSecret := os.Getenv("GAUTH_GOOGLE_CLIENT_SECRET")
+	unitMode := os.FileMode(0644)
+	if clientSecret != "" {
+		unitMode = 0600
+	}
+
+	f, err := os.OpenFile(unitPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, unitMode)
 	if err != nil {
 		return fmt.Errorf("cannot write unit file: %w", err)
 	}
@@ -68,11 +83,12 @@ func installService() error {
 
 	tmpl := template.Must(template.New("unit").Parse(unitTemplate))
 	if err := tmpl.Execute(f, unitVars{
-		BinaryPath: binaryPath,
-		Port:       *flagPort,
-		DataDir:    dataDir,
-		ClientID:   *flagClientID,
-		APIKey:     *flagAPIKey,
+		BinaryPath:   binaryPath,
+		Port:         *flagPort,
+		DataDir:      dataDir,
+		ClientID:     *flagClientID,
+		APIKey:       *flagAPIKey,
+		ClientSecret: clientSecret,
 	}); err != nil {
 		return fmt.Errorf("cannot render unit file: %w", err)
 	}

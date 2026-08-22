@@ -2,15 +2,17 @@
 #
 #   irm https://<your-release-host>/gauth/install.ps1 | iex
 #
-# Fill in $GauthClientId (and optionally $GauthApiKey) below before
-# distributing this script, or set them as environment variables
-# GAUTH_CLIENT_ID / GAUTH_API_KEY before running it.
+# Fill in $GauthClientId (and optionally $GauthApiKey and
+# $GauthGoogleClientSecret) below before distributing this script, or
+# set them as environment variables GAUTH_CLIENT_ID / GAUTH_API_KEY /
+# GAUTH_GOOGLE_CLIENT_SECRET before running it.
 
 $ErrorActionPreference = 'Stop'
 
 # ==================== fill these in before distributing ====================
 $GauthClientId = if ($env:GAUTH_CLIENT_ID) { $env:GAUTH_CLIENT_ID } else { 'REPLACE_WITH_YOUR_DESKTOP_CLIENT_ID.apps.googleusercontent.com' }
 $GauthApiKey   = if ($env:GAUTH_API_KEY)   { $env:GAUTH_API_KEY }   else { '' }   # optional — leave empty for no API-key auth
+$GauthGoogleClientSecret = if ($env:GAUTH_GOOGLE_CLIENT_SECRET) { $env:GAUTH_GOOGLE_CLIENT_SECRET } else { '' }  # REQUIRED — Desktop-app client_secret, needed on every token exchange even with PKCE
 # =============================================================================
 
 $Repo = if ($env:GAUTH_REPO) { $env:GAUTH_REPO } else { 'your-org/gauth' }
@@ -23,6 +25,10 @@ function Fail($msg) { Write-Host "error: $msg" -ForegroundColor Red; exit 1 }
 
 if ($GauthClientId -eq 'REPLACE_WITH_YOUR_DESKTOP_CLIENT_ID.apps.googleusercontent.com') {
   Fail "GAUTH_CLIENT_ID is still the placeholder — edit this script or set `$env:GAUTH_CLIENT_ID before running it."
+}
+
+if (-not $GauthGoogleClientSecret) {
+  Fail "GAUTH_GOOGLE_CLIENT_SECRET is empty — Google requires the Desktop-app client_secret on every token exchange, even with PKCE. Edit this script or set `$env:GAUTH_GOOGLE_CLIENT_SECRET before running it."
 }
 
 # ---- 1. Detect architecture -------------------------------------------------
@@ -62,7 +68,11 @@ try {
   Write-Step "Installed to $finalPath"
 
   # ---- 6. Register + start the SCM service (elevates via UAC itself) --------
+  # The binary reads GAUTH_GOOGLE_CLIENT_SECRET from its environment and
+  # persists it in the service's registry Environment value (never on the
+  # command line).
   Write-Step "Registering gauth as a Windows service..."
+  $env:GAUTH_GOOGLE_CLIENT_SECRET = $GauthGoogleClientSecret
   $installArgs = @('--install-service', '--port', $Port, '--client-id', $GauthClientId)
   if ($GauthApiKey) { $installArgs += @('--key', $GauthApiKey) }
   & $finalPath @installArgs
