@@ -67,14 +67,17 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	})
 }
 
-// isAllowedOrigin checks the exact configured frontend origin, plus any
-// scheme/port of localhost or 127.0.0.1 for local development.
-func isAllowedOrigin(origin, frontendOrigin string) bool {
+// isAllowedOrigin checks the exact configured frontend origins
+// (production + staging), plus any scheme/port of localhost or 127.0.0.1
+// for local development.
+func isAllowedOrigin(origin string) bool {
 	if origin == "" {
 		return false
 	}
-	if origin == frontendOrigin {
-		return true
+	for _, allowed := range AllowedOrigins {
+		if origin == allowed {
+			return true
+		}
 	}
 	u, err := url.Parse(origin)
 	if err != nil {
@@ -86,7 +89,7 @@ func isAllowedOrigin(origin, frontendOrigin string) bool {
 func (s *Server) cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		if isAllowedOrigin(origin, s.frontendOrigin) {
+		if isAllowedOrigin(origin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
@@ -247,7 +250,7 @@ func (s *Server) handleAuthURL(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	start, err := s.oauthState.Create(userID, returnToFromRequest(r, s.frontendOrigin))
+	start, err := s.oauthState.Create(userID, returnToFromRequest(r))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -259,10 +262,11 @@ func (s *Server) handleAuthURL(w http.ResponseWriter, r *http.Request) {
 // returnToFromRequest extracts the optional ?returnTo= base URL the
 // frontend wants to land on after Google consent (it must already
 // include its path, e.g. https://host/sync-settings). Only the exact
-// configured frontend origin or any localhost/127.0.0.1 origin is
-// allowed — anything else falls back to the default frontend origin so
-// gauth can never be used as an open redirect.
-func returnToFromRequest(r *http.Request, frontendOrigin string) string {
+// configured frontend origins (production + staging) or any
+// localhost/127.0.0.1 origin is allowed — anything else falls back to
+// the default frontend origin so gauth can never be used as an open
+// redirect.
+func returnToFromRequest(r *http.Request) string {
 	raw := strings.TrimSpace(r.URL.Query().Get("returnTo"))
 	if raw == "" {
 		return ""
@@ -272,14 +276,19 @@ func returnToFromRequest(r *http.Request, frontendOrigin string) string {
 		(u.Scheme != "http" && u.Scheme != "https") {
 		return ""
 	}
-	fu, err := url.Parse(frontendOrigin)
-	if err != nil || fu.Host == "" {
-		return ""
+	for _, allowed := range AllowedOrigins {
+		au, err := url.Parse(allowed)
+		if err != nil || au.Host == "" {
+			continue
+		}
+		if strings.EqualFold(u.Host, au.Host) {
+			return raw
+		}
 	}
-	if !strings.EqualFold(u.Host, fu.Host) && !isLocalDevOrigin(u.Hostname()) {
-		return ""
+	if isLocalDevOrigin(u.Hostname()) {
+		return raw
 	}
-	return raw
+	return ""
 }
 
 func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {

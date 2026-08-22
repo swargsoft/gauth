@@ -14,10 +14,20 @@ const (
 	DefaultPort = 8765
 )
 
-// FrontendOrigin is the msgly origin allowed to read CORS responses
-// (see core/httpapi.go — localhost/127.0.0.1 are separately allowed for
-// local development). Never wildcarded — see SECURITY.md.
+// FrontendOrigin is the default post-consent redirect target (the
+// production frontend's /sync-settings route) when the auth-url request
+// didn't carry a returnTo.
 const FrontendOrigin = "https://msgly.swargsoft.com"
+
+// AllowedOrigins are the exact origins allowed to read CORS responses
+// and to be used as post-consent redirect targets, in addition to any
+// localhost/127.0.0.1 origin for local development (see core/httpapi.go).
+// Never wildcarded — see SECURITY.md.
+var AllowedOrigins = []string{
+	"https://msgly.swargsoft.com",
+	"https://stg.msgly.swargsoft.com",
+	"https://stg.msgly.pages.dev",
+}
 
 // isLocalDevOrigin reports whether origin is some form of
 // localhost/127.0.0.1 (any scheme, any port) — allowed for local
