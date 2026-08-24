@@ -157,9 +157,50 @@ jobs:
             gauth-windows-amd64.exe
             gauth-windows-amd64.exe.sha256
 
+  build-windows-arm64:
+    runs-on: windows-latest
+    outputs:
+      sha256: ${{ steps.checksum.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - name: Install llvm-mingw for arm64 cross-compilation
+        shell: pwsh
+        run: |
+          $ver = "20260616"
+          $url = "https://github.com/mstorsjo/llvm-mingw/releases/download/$ver/llvm-mingw-$ver-ucrt-x86_64.zip"
+          Write-Host "Downloading $url"
+          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\llvm-mingw.zip"
+          Expand-Archive -Path "$env:RUNNER_TEMP\llvm-mingw.zip" -DestinationPath "C:\"
+          Add-Content $env:GITHUB_PATH "C:\llvm-mingw-$ver-ucrt-x86_64\bin"
+      - name: Build
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          CGO_ENABLED=1 GOOS=windows GOARCH=arm64 \
+            CC=aarch64-w64-mingw32-gcc \
+            go build -ldflags="-s -w -X ${{ env.MODULE }}/core.Version=${VERSION}" \
+            -o gauth-windows-arm64.exe ./cmd/server
+      - name: Generate checksum
+        id: checksum
+        shell: bash
+        run: |
+          SHA=$(sha256sum gauth-windows-arm64.exe | cut -d' ' -f1)
+          echo "sha256=$SHA" >> $GITHUB_OUTPUT
+          echo "$SHA  gauth-windows-arm64.exe" > gauth-windows-arm64.exe.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-arm64
+          retention-days: 1
+          path: |
+            gauth-windows-arm64.exe
+            gauth-windows-arm64.exe.sha256
+
   # ── Generate aggregated checksums + version manifest ─────────────────────────
   checksums:
-    needs: [build-linux-amd64, build-linux-arm64, build-mac, build-windows-amd64]
+    needs: [build-linux-amd64, build-linux-arm64, build-mac, build-windows-amd64, build-windows-arm64]
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.VERSION }}
@@ -212,6 +253,11 @@ jobs:
                 "filename": "gauth-windows-amd64.exe",
                 "url": "${TAG_URL}/gauth-windows-amd64.exe",
                 "sha256": "${{ needs.build-windows-amd64.outputs.sha256 }}"
+              },
+              "windows-arm64": {
+                "filename": "gauth-windows-arm64.exe",
+                "url": "${TAG_URL}/gauth-windows-arm64.exe",
+                "sha256": "${{ needs.build-windows-arm64.outputs.sha256 }}"
               }
             }
           }
@@ -227,7 +273,7 @@ jobs:
             latest.json
 
   release:
-    needs: [build-linux-amd64, build-linux-arm64, build-mac, build-windows-amd64, checksums]
+    needs: [build-linux-amd64, build-linux-arm64, build-mac, build-windows-amd64, build-windows-arm64, checksums]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
