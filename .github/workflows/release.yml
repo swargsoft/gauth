@@ -286,8 +286,6 @@ jobs:
           find dist -type f -exec mv {} release/ \;
           chmod +x release/gauth-linux-* release/gauth-mac-* 2>/dev/null || true
           ls -la release
-      - name: Copy installer scripts
-        run: cp installers/install.sh installers/install.ps1 release/
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
